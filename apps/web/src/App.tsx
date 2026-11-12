@@ -27,7 +27,6 @@ export default function App() {
     try {
       const inq = inquiries.find(i => i.id === id) || (await (await fetch(`${API}/api/inquiries/${id}`))).json()
       setSelected(inq)
-      // generate draft
       const r = await fetch(`${API}/api/draft`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ inquiry_id: id }) })
       const data = await r.json()
       setDraft(data.draft)
@@ -53,8 +52,8 @@ export default function App() {
 
   return (
     <div style={{ fontFamily: 'system-ui, sans-serif', maxWidth: 980, margin: '0 auto', padding: 20 }}>
-      <h1>BusinessFlow AI <span style={{ color: '#666', fontSize: 0.6 }}>&bull; demo</span></h1>
-      <p style={{ color: '#555' }}>Customer inquiry intake &rarr; classification &rarr; policy-grounded draft &rarr; human approval. Synthetic demo data; no real customer emails sent.</p>
+      <h1>BusinessFlow AI <span style={{ color: '#666', fontSize: 0.6 }}>• demo</span></h1>
+      <p style={{ color: '#555' }}>Customer inquiry intake → classification → policy-grounded draft → human approval. Synthetic demo data; no real customer emails sent.</p>
       {error && <span style={{ color: '#dc2626' }}>{error}</span>}
 
       <section style={{ marginTop: 16 }}>
