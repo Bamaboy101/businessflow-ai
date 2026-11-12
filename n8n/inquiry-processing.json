@@ -1,0 +1,134 @@
+{
+  "name": "BusinessFlow AI - Inquiry Processing Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "businessflow-inquiry",
+        "responseMode": "lastNode",
+        "responseData": "allEntries"
+      },
+      "name": "Webhook - Inquiry Received",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 0,
+      "position": [240, 100]
+    },
+    {
+      "parameters": {
+        "assignments": [
+          {
+            "id": "category",
+            "name": "Category",
+            "type": "string",
+            "value": "={{ $json.text.match(/refund|charge|invoice|billing/i) ? 'billing' : $json.text.match(/buy|purchase|pricing|quote/i) ? 'sales' : $json.text.match(/manager|fraud|dispute|escalate/i) ? 'escalation' : 'support' }}"
+          },
+          {
+            "id": "urgency",
+            "name": "Urgency",
+            "type": "string",
+            "value": "={{ $json.text.match(/refund|fraud|urgent|manager/i) ? 'high' : 'normal' }}"
+          }
+        ],
+        "options": {}
+      },
+      "name": "Classify Inquiry",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [440, 100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.category }}",
+              "operation": "equals",
+              "value2": "escalation"
+            }
+          ]
+        }
+      },
+      "name": "Escalation Check",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 0,
+      "position": [640, 100]
+    },
+    {
+      "parameters": {
+        "to": "manager@example.com",
+        "subject": "BusinessFlow AI: Escalation Required",
+        "text": "An inquiry has been flagged for escalation.\\n\\nInquiry: {{ $json.text }}\\nCategory: {{ $json.category }}\\nUrgency: {{ $json.urgency }}\\n\\nPlease review in the BusinessFlow dashboard."
+      },
+      "name": "Notify Manager",
+      "type": "n8n-nodes-base.sendEmail",
+      "typeVersion": 1,
+      "position": [840, 100],
+      "credentials": {
+        "smtp": "SMTP Credentials"
+      }
+    },
+    {
+      "parameters": {
+        "to": "support-team@example.com",
+        "subject": "BusinessFlow AI: New Inquiry",
+        "text": "A new inquiry has been received.\\n\\nText: {{ $json.text }}\\nCategory: {{ $json.category }}\\nUrgency: {{ $json.urgency }}\\n\\nPlease review in the BusinessFlow dashboard."
+      },
+      "name": "Notify Support Team",
+      "type": "n8n-nodes-base.sendEmail",
+      "typeVersion": 1,
+      "position": [840, 300],
+      "credentials": {
+        "smtp": "SMTP Credentials"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook - Inquiry Received": {
+      "main": [
+        [
+          {
+            "node": "Classify Inquiry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Inquiry": {
+      "main": [
+        [
+          {
+            "node": "Escalation Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Escalation Check": {
+      "main": [
+        [
+          {
+            "node": "Notify Manager",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify Support Team",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "versionId": "1",
+  "triggerCount": 0,
+  "updatedAt": "2026-11-12T19:00:00Z",
+  "createdAt": "2026-11-12T19:00:00Z",
+  "versionId": "1"
+}
