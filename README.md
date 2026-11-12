@@ -43,9 +43,11 @@ flowchart LR
 
 ---
 
-## Screenshots
+## Demo Preview
 
-Placeholder screenshots will be added after the first deployment. The live dashboard at `https://bamaboy101.github.io/businessflow-ai/` shows:
+![BusinessFlow Dashboard Desktop](./screenshots/desktop.png)
+
+![BusinessFlow Dashboard Mobile](./screenshots/mobile.png)
 
 - Inquiry queue with category/urgency/state
 - Draft reply with cited FAQ source ID
