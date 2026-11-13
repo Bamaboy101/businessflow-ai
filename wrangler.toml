@@ -1,0 +1,11 @@
+name = "businessflow-api"
+main = "apps/api/src/index.ts"
+compatibility_date = "2026-11-13"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "businessflow-db"
+database_id = "7e61752b-6158-4704-8ecf-d83693dca2c8"
+
+[vars]
+MODE = "demo"

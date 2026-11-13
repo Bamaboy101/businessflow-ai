@@ -3,11 +3,7 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  base: process.env.NODE_ENV === 'production' ? '/businessflow-ai/' : '/',
-  server: {
-    port: 5176,
-    proxy: {
-      '/api': 'http://localhost:4003'
-    }
-  }
+  base: '/',
+  build: { outDir: 'dist' },
+  server: { port: 5176, proxy: { '/api': { target: 'https://businessflow-api.marketmesh-api.workers.dev', changeOrigin: true } } }
 })
