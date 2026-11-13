@@ -1,5 +1,5 @@
 {
-  "name": "BusinessFlow AI - Inquiry Processing Workflow",
+  "name": "BusinessFlow AI - Inquiry Processing",
   "nodes": [
     {
       "parameters": {
@@ -18,11 +18,9 @@
         "httpMethod": "POST",
         "url": "http://localhost:4003/api/inquiries",
         "jsonParameters": true,
-        "bodyParametersJson": "{
-          \"text\": \"={{ $json.text }}\"
-        }"
+        "bodyParametersJson": "{ \"text\": \"{{ $json.text }}\" }"
       },
-      "name": "Send to BusinessFlow API",
+      "name": "Send to BusinessFlow",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 1,
       "position": [460, 100]
@@ -32,14 +30,14 @@
         "conditions": {
           "string": [
             {
-              "value1": \"={{ $json.category }}\",
-              "operation\": \"equals\",
-              \"value2\": \"escalation\"
+              "value1": "{{ $json.category }}",
+              "operation": "equals",
+              "value2": "escalation"
             },
             {
-              "value1": \"={{ $json.category }}\",
-              \"operation\": \"equals\",
-              \"value2\": \"billing\"
+              "value1": "{{ $json.category }}",
+              "operation": "equals",
+              "value2": "billing"
             }
           ]
         },
@@ -55,7 +53,7 @@
     {
       "parameters": {
         "to": "manager@example.com",
-        "subject": "BusinessFlow AI: Escalation Required",
+        "subject": "BusinessFlow AI - Escalation Required",
         "text": "Inquiry requires escalation:\\n\\nText: {{ $json.text }}\\nCategory: {{ $json.category }}\\nUrgency: {{ $json.urgency }}"
       },
       "name": "Notify Manager",
@@ -69,8 +67,8 @@
     {
       "parameters": {
         "to": "support-team@example.com",
-        "subject": "BusinessFlow AI: New Inquiry",
-        "text": "New inquiry received:\\n\\n{{ $json.text }}\\nCategory: {{ $json.category }}\\nUrgency: {{ $json.urgency }}\\n\\nReview in BusinessFlow dashboard."
+        "subject": "BusinessFlow AI - New Inquiry",
+        "text": "New inquiry:\\n\\n{{ $json.text }}\\nCategory: {{ $json.category }}\\nUrgency: {{ $json.urgency }}\\n\\nReview in BusinessFlow dashboard."
       },
       "name": "Notify Support Team",
       "type": "n8n-nodes-base.sendEmail",
@@ -86,14 +84,14 @@
       "main": [
         [
           {
-            "node": "Send to BusinessFlow API",
+            "node": "Send to BusinessFlow",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Send to BusinessFlow API": {
+    "Send to BusinessFlow": {
       "main": [
         [
           {
