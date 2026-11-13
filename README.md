@@ -1,152 +1,92 @@
 # BusinessFlow AI
 
-Small-business intake, routing and approved replies (MVP).
+Small teams drown in repetitive inquiries. BusinessFlow classifies intent, drafts a reply grounded in an approved policy, and requires a human decision before anything is recorded.
 
-## Live Demo
+**Live application: https://bamaboy101.github.io/businessflow-ai/** — open it in any browser. No login, no installation, no local server.
 
-🌐 **[Open the interactive dashboard →](https://bamaboy101.github.io/businessflow-ai/)**
-
-No setup, no credentials, no backend required. Runs entirely in your browser with labeled synthetic data.
-
----
-
-## What It Delivers
-
-A business owner can try a synthetic support request, inspect a source-grounded draft and approve a sandbox follow-up without sending any real customer email.
-
-**Inquiry → Classify → Lookup → Draft → Approve.**
-
-- Public inquiry form with synthetic leads and a sample business
-- Intent classification: sales / support / billing / escalation
-- Curated FAQ/policy knowledge snippets with source IDs and revision
-- Grounded draft reply citing matched FAQ; unsupported claims flagged
-- Approve / escalate with operator audit trail
-- Sandbox CRM activity (deduplicated); simple queue metrics
-- **No live CRM mutation or customer email send by default**
-
----
+| | |
+|---|---|
+| Frontend | https://bamaboy101.github.io/businessflow-ai/ |
+| Backend API | https://businessflow-api.marketmesh-api.workers.dev |
+| API health | https://businessflow-api.marketmesh-api.workers.dev/api/health |
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    A[Synthetic Inquiry] --> B[Intent Classification]
-    B --> C[FAQ Policy Lookup]
-    C --> D[Grounded Draft + Citations]
-    D --> E[Approve / Escalate]
-    E --> F[Sandbox CRM Activity + Metrics]
-    style C fill:#dcfce7,stroke:#16a34a
-    style F fill:#dbeafe,stroke:#2563eb
+  B[Browser] --> P["GitHub Pages<br/>apps/web/index.html"]
+  P -->|"HTTPS + x-demo-session"| W["Cloudflare Worker<br/>Hono API"]
+  W --> D[("Cloudflare D1")]
 ```
 
-**Trust boundaries:** Untrusted customer inquiry text cannot override policy or system rules. Every drafted policy claim references a matched FAQ section or is flagged unknown. Approve and log to sandbox only; external send and CRM writes disabled.
+The frontend is a single self-contained `apps/web/index.html` (React and Tailwind from CDN). There is **no build step**, so the committed file is exactly what is served — this removes any drift between source and deployment.
 
----
+Three independent GitHub Actions workflows:
 
-## Demo Preview
-
-![BusinessFlow Dashboard Desktop](./screenshots/desktop.png)
-
-![BusinessFlow Dashboard Mobile](./screenshots/mobile.png)
-
-- Inquiry queue with category/urgency/state
-- Draft reply with cited FAQ source ID
-- Unsupported-claim indicators
-- Approve / escalate buttons
-- Sandbox activity log and queue metrics
-
----
-
-## Features
-
-| Feature | Status |
+| Workflow | Purpose |
 |---|---|
-| Synthetic inquiry intake | ✅ Verified |
-| Intent classification (sales/support/billing/escalation) | ✅ 4/4 tests pass |
-| FAQ policy lookup with source IDs | ✅ Verified |
-| Policy-grounded draft replies | ✅ Verified |
-| Unsupported-claim flags | ✅ Verified |
-| Approve / escalate with audit trail | ✅ Verified |
-| Sandbox CRM activity (deduplicated) | ✅ Verified |
-| Queue metrics | ✅ Verified |
-| No real email / live CRM send | ✅ By design |
+| `pages.yml` | Publishes `apps/web/index.html` to GitHub Pages and verifies the *published* HTML references the Worker |
+| `ci.yml` | API typecheck (`tsc --noEmit`) and unit tests (`vitest`) with committed lockfiles |
+| `e2e.yml` | Headless Chromium against the **live public URL**; uploads desktop + mobile screenshots, Playwright report, network/console diagnostics |
 
----
+Frontend deployment is deliberately decoupled from backend tests, so a failing test can never take the public site down.
 
-## Installation
+## Verified features
+
+- Synthetic inquiry intake with deterministic intent classification (sales / billing / escalation / support)
+- Policy lookup against approved FAQ snippets with source ids and revisions
+- Draft replies cite the matched policy; unsupported claims are flagged
+- Approve or Escalate, each recorded with actor, reason and timestamp
+- Sandbox activity log and queue state, persisted per visitor and restored after reload
+
+## Technologies
+
+React (CDN) + Tailwind standalone frontend · Cloudflare Worker (Hono) · Cloudflare D1
+
+## Running locally
 
 ```bash
-# Clone
-git clone https://github.com/bamaboy101/businessflow-ai.git
-cd businessflow-ai
-
-# Backend
-cd apps/api
-npm install          # dev deps include vitest
-npm test             # 4 tests pass
-npm run dev          # API on :4003
-
-# Frontend (new terminal)
-cd ../web
-npm install
-npm run dev          # Dashboard on :5176
-
-# Docker (optional, once Docker daemon available)
-cd ../.. && docker compose up --build
+git clone https://github.com/Bamaboy101/businessflow-ai.git
+cd businessflow-ai/apps/api
+npm ci
+npm test            # unit tests
+npm run build       # typecheck
+npx wrangler dev    # API on http://localhost:8787
 ```
 
-Copy `.env.example` to `.env`. Demo needs no credentials.
+Serve `apps/web/index.html` with any static server to run the frontend locally.
 
----
+### Browser acceptance tests
 
-## Configuration
+```bash
+cd e2e
+npm ci
+npx playwright install chromium
+APP_NAME=businessflow-ai WORKER_BASE=https://businessflow-api.marketmesh-api.workers.dev npx playwright test
+```
 
-| Variable | Purpose | Required |
-|---|---|---|
-| `PORT` | API port (default 4003) | No |
-| `AI_PROVIDER` | `demo` (default), `nvidia`, `openrouter` | No |
-| `NVIDIA_API_KEY` / `NVIDIA_MODEL` | Optional live AI provider | No |
-| `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` | Optional OpenRouter fallback | No |
+Tests run against the deployed public URL by default and write screenshots to `e2e/screenshots/`.
 
-No credentials are hardcoded, logged, or committed.
+## Security and data isolation
 
----
+- **Anonymous sessions.** The Worker issues an opaque UUID session id; the browser stores it in `localStorage` and sends it as `x-demo-session`. Every record is stamped with that id and every read is filtered by it, so two different browsers never see each other's records, while a reload keeps your own history. Verified with two independent browser contexts.
+- **Rate limiting.** 120 requests/minute per session; exceeding it returns `429` with `Retry-After`.
+- **Request size ceiling.** Bodies above 512 KiB are rejected with `413`.
+- **CORS allowlist.** Only the published GitHub Pages origin (and local dev origins) receive `Access-Control-Allow-Origin`; arbitrary origins receive none.
+- **Input validation.** All write endpoints validate required fields and return `400` with a JSON error.
+- **No secrets in the frontend.** The published HTML contains no API keys, tokens or credentials.
 
-## AI Provider
+## Limitations and honest scope
 
-Configurable adapter supports **NVIDIA** (preferred), **OpenRouter** (optional fallback), and **demo** (default). NVIDIA API is reachable and authenticated; no suitable model is available for this account, so the default is clearly labeled demonstration responses. OpenRouter is not required.
+- **No email is sent and no CRM is mutated.** Approvals write to a sandbox activity log only.
+- Classification and drafting are deterministic and policy-grounded; no LLM inference is used or claimed.
+- Use synthetic inquiries only — do not submit real customer data.
 
----
+## Test evidence
 
-## Limitations
-
-- Opt-in CRM connectors not included
-- Team approval roles not included
-- Multilingual drafting not included
-- Dashboard analytics not included
-- No real customer data in examples
-- No external send by default
-
----
-
-## Security
-
-- **Customer text cannot override policy or system rules.**
-- **Every drafted policy claim references a matched FAQ or is flagged unknown.**
-- **Billing disputes and unsupported claims require human review.**
-- **No real customer data in examples; no external send by default.**
-- See `docs/grounding-safety.md` for details.
-
----
-
-## Demo
-
-🌐 **[BusinessFlow Live Demo](https://bamaboy101.github.io/businessflow-ai/)** — browser-based, no setup, labeled synthetic data.
-
-View source: `https://github.com/bamaboy101/businessflow-ai`
-
----
+CI, deployment and browser-acceptance runs — including screenshots and Playwright reports — are published as GitHub Actions artifacts on every run:
+**https://github.com/Bamaboy101/businessflow-ai/actions**
 
 ## License
 
-[MIT](LICENSE)
+MIT
