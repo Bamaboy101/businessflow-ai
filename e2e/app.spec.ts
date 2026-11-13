@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { instrument, openApp, shoot, dumpDiagnostics, WORKER } from './helpers'
+import { instrument, openApp, shoot, dumpDiagnostics, expectWorkerCall, WORKER } from './helpers'
 
 test.describe('BusinessFlow AI — live public acceptance', () => {
   test('inquiry → classify → grounded draft → approve → sandbox activity persists; escalation works', async ({ page, browser }, testInfo) => {
@@ -11,7 +11,7 @@ test.describe('BusinessFlow AI — live public acceptance', () => {
     await expect(page.getByRole('heading', { name: 'Customer Inquiry Intake' })).toBeVisible()
     await expect(page.getByTestId('sandbox-panel')).toBeVisible()
     await expect(page.getByText('Refunds are available within 30 days')).toBeVisible({ timeout: 45_000 })
-    expect(probe.workerCalls.some((c) => c.url.endsWith('/api/policies') && c.status === 200)).toBeTruthy()
+    await expectWorkerCall(probe.workerCalls, '/api/policies')
     await shoot(page, '01-intake', project)
 
     const marker = `E2E-${Date.now()}`
@@ -23,7 +23,7 @@ test.describe('BusinessFlow AI — live public acceptance', () => {
     await expect(page.getByRole('heading', { name: 'Inquiry Detail' })).toBeVisible({ timeout: 45_000 })
     await expect(page.getByText(marker)).toBeVisible()
     await expect(page.getByText('billing', { exact: true })).toBeVisible()
-    expect(probe.workerCalls.some((c) => c.url.endsWith('/api/inquiries') && c.method === 'POST' && c.status === 200)).toBeTruthy()
+    await expectWorkerCall(probe.workerCalls, '/api/inquiries', 'POST')
     await shoot(page, '02-classified', project)
 
     // Draft must cite an approved policy.
