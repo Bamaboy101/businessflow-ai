@@ -1,16 +1,18 @@
-import { Hono } from 'hono'
-import { cors } from 'hono/cors'
+import { Hono, type Context } from 'hono'
+import { guard, sessionOf } from './guard'
 
-const app = new Hono<{ Bindings: { DB?: D1Database } }>()
+type AppEnv = { Bindings: { DB?: D1Database }; Variables: { session: string } }
 
-app.use('*', cors())
+const app = new Hono<AppEnv>()
+
+app.use('*', guard({ tables: ['inquiries', 'drafts', 'decisions', 'sandbox_activities'] }))
 app.use('*', async (c, next) => {
   const start = Date.now()
   await next()
   console.log(`${c.req.method} ${c.req.path} ${c.res.status} ${Date.now() - start}ms`)
 })
 
-async function parseBody(c: any): Promise<any> {
+async function parseBody(c: Context): Promise<any> {
   try {
     const body = await c.req.raw.json()
     if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
@@ -73,7 +75,7 @@ app.get('/api/health', (c) => {
 app.get('/api/inquiries', async (c) => {
   try {
     if (c.env.DB) {
-      const result = await c.env.DB.prepare(`SELECT * FROM inquiries ORDER BY received_utc DESC LIMIT 50`).all()
+      const result = await c.env.DB.prepare(`SELECT * FROM inquiries WHERE session_id=? ORDER BY received_utc DESC LIMIT 50`).bind(sessionOf(c)).all()
       return c.json(result.results || [])
     }
   } catch (e) { console.error('D1 error:', e) }
@@ -83,13 +85,13 @@ app.get('/api/inquiries', async (c) => {
 app.get('/api/inquiries/:id', async (c) => {
   try {
     if (c.env.DB) {
-      const inq = await c.env.DB.prepare(`SELECT * FROM inquiries WHERE id=?`).bind(c.req.param('id')).first() as any
-      if (!inq) return c.status(404).json({ error: 'inquiry not found' })
+      const inq = await c.env.DB.prepare(`SELECT * FROM inquiries WHERE id=? AND session_id=?`).bind(c.req.param('id'), sessionOf(c)).first() as any
+      if (!inq) return c.json({ error: 'inquiry not found' }, 404)
       const draft = await c.env.DB.prepare(`SELECT * FROM drafts WHERE inquiry_id=?`).bind(c.req.param('id')).first() as any
       return c.json({ inquiry: inq, draft })
     }
   } catch (e) { console.error('D1 error:', e) }
-  return c.status(404).json({ error: 'inquiry not found' })
+  return c.json({ error: 'inquiry not found' }, 404)
 })
 
 app.get('/api/policies', (c) => {
@@ -98,14 +100,14 @@ app.get('/api/policies', (c) => {
 
 app.get('/api/policies/:topic', (c) => {
   const pol = POLICIES.find(p => p.topic === c.req.param('topic'))
-  if (!pol) return c.status(404).json({ error: 'policy not found' })
+  if (!pol) return c.json({ error: 'policy not found' }, 404)
   return c.json(pol)
 })
 
 app.post('/api/inquiries', async (c) => {
   const body = await parseBody(c) as { text?: string }
   const { text } = body
-  if (!text) return c.status(400).json({ error: 'text required' })
+  if (!text) return c.json({ error: 'text required' }, 400)
 
   const { category, confidence, matched } = classify(text)
   const urgency = isEscalationTrigger(text) ? 'high' : 'normal'
@@ -115,8 +117,8 @@ app.post('/api/inquiries', async (c) => {
   try {
     if (c.env.DB) {
       await c.env.DB.prepare(
-        `INSERT INTO inquiries (id, received_utc, text, category, urgency, state) VALUES (?,?,?,?,?,?)`
-      ).bind(inq.id, inq.received_utc, inq.text, inq.category, inq.urgency, inq.state).run()
+        `INSERT INTO inquiries (id, received_utc, text, category, urgency, state, session_id) VALUES (?,?,?,?,?,?,?)`
+      ).bind(inq.id, inq.received_utc, inq.text, inq.category, inq.urgency, inq.state, sessionOf(c)).run()
     }
   } catch (e) { console.error('D1 error:', e) }
 
@@ -126,14 +128,15 @@ app.post('/api/inquiries', async (c) => {
 app.post('/api/draft', async (c) => {
   const body = await parseBody(c) as { inquiry_id?: string }
   const { inquiry_id } = body
+  if (!inquiry_id) return c.json({ error: 'inquiry_id required' }, 400)
 
   let inq: any = null
   try {
     if (c.env.DB) {
-      inq = await c.env.DB.prepare(`SELECT * FROM inquiries WHERE id=?`).bind(inquiry_id).first() as any
+      inq = await c.env.DB.prepare(`SELECT * FROM inquiries WHERE id=? AND session_id=?`).bind(inquiry_id, sessionOf(c)).first() as any
     }
   } catch (e) { console.error('D1 error:', e) }
-  if (!inq) return c.status(404).json({ error: 'inquiry not found' })
+  if (!inq) return c.json({ error: 'inquiry not found' }, 404)
 
   const pol = POLICIES_MAP[inq.category]
   let answer: string
@@ -166,8 +169,8 @@ app.post('/api/draft', async (c) => {
   try {
     if (c.env.DB) {
       await c.env.DB.prepare(
-        `INSERT INTO drafts (id, inquiry_id, answer, citations, unsupported_claims, created_utc) VALUES (?,?,?,?,?,?)`
-      ).bind(draft.id, draft.inquiry_id, draft.answer, draft.citations, draft.unsupported_claims, draft.created_utc).run()
+        `INSERT INTO drafts (id, inquiry_id, answer, citations, unsupported_claims, created_utc, session_id) VALUES (?,?,?,?,?,?,?)`
+      ).bind(draft.id, draft.inquiry_id, draft.answer, draft.citations, draft.unsupported_claims, draft.created_utc, sessionOf(c)).run()
     }
   } catch (e) { console.error('D1 error:', e) }
 
@@ -179,14 +182,14 @@ app.post('/api/inquiries/:id/decide', async (c) => {
   let inq: any = null
   try {
     if (c.env.DB) {
-      inq = await c.env.DB.prepare(`SELECT * FROM inquiries WHERE id=?`).bind(id).first() as any
+      inq = await c.env.DB.prepare(`SELECT * FROM inquiries WHERE id=? AND session_id=?`).bind(id, sessionOf(c)).first() as any
     }
   } catch (e) { console.error('D1 error:', e) }
-  if (!inq) return c.status(404).json({ error: 'inquiry not found' })
+  if (!inq) return c.json({ error: 'inquiry not found' }, 404)
 
   const body = await parseBody(c) as { actor?: string; approved?: boolean; reason?: string }
   const { actor, approved, reason } = body
-  if (!actor) return c.status(400).json({ error: 'actor required' })
+  if (!actor) return c.json({ error: 'actor required' }, 400)
 
   const decId = `dec:${crypto.randomUUID()}`
   const decision: Decision = { id: decId, inquiry_id: id, actor, approved: !!approved, reason: reason ?? null, decided_utc: new Date().toISOString() }
@@ -197,11 +200,11 @@ app.post('/api/inquiries/:id/decide', async (c) => {
   try {
     if (c.env.DB) {
       await c.env.DB.prepare(
-        `INSERT INTO decisions (id, inquiry_id, actor, approved, reason, decided_utc) VALUES (?,?,?,?,?,?)`
-      ).bind(decision.id, decision.inquiry_id, decision.actor, decision.approved ? 1 : 0, decision.reason, decision.decided_utc).run()
+        `INSERT INTO decisions (id, inquiry_id, actor, approved, reason, decided_utc, session_id) VALUES (?,?,?,?,?,?,?)`
+      ).bind(decision.id, decision.inquiry_id, decision.actor, decision.approved ? 1 : 0, decision.reason, decision.decided_utc, sessionOf(c)).run()
       await c.env.DB.prepare(
-        `INSERT INTO sandbox_activities (id, inquiry_id, activity, created_utc) VALUES (?,?,?,?)`
-      ).bind(actId, id, activity, new Date().toISOString()).run()
+        `INSERT INTO sandbox_activities (id, inquiry_id, activity, created_utc, session_id) VALUES (?,?,?,?,?)`
+      ).bind(actId, id, activity, new Date().toISOString(), sessionOf(c)).run()
     }
   } catch (e) { console.error('D1 error:', e) }
 
@@ -211,7 +214,7 @@ app.post('/api/inquiries/:id/decide', async (c) => {
 app.get('/api/decisions', async (c) => {
   try {
     if (c.env.DB) {
-      const result = await c.env.DB.prepare(`SELECT * FROM decisions ORDER BY decided_utc DESC LIMIT 50`).all()
+      const result = await c.env.DB.prepare(`SELECT * FROM decisions WHERE session_id=? ORDER BY decided_utc DESC LIMIT 50`).bind(sessionOf(c)).all()
       return c.json(result.results || [])
     }
   } catch (e) { console.error('D1 error:', e) }
@@ -221,7 +224,7 @@ app.get('/api/decisions', async (c) => {
 app.get('/api/sandbox', async (c) => {
   try {
     if (c.env.DB) {
-      const result = await c.env.DB.prepare(`SELECT * FROM sandbox_activities ORDER BY created_utc DESC LIMIT 50`).all()
+      const result = await c.env.DB.prepare(`SELECT * FROM sandbox_activities WHERE session_id=? ORDER BY created_utc DESC LIMIT 50`).bind(sessionOf(c)).all()
       return c.json(result.results || [])
     }
   } catch (e) { console.error('D1 error:', e) }
@@ -231,7 +234,7 @@ app.get('/api/sandbox', async (c) => {
 app.get('/api/metrics', async (c) => {
   try {
     if (c.env.DB) {
-      const inquiries = await c.env.DB.prepare(`SELECT * FROM inquiries`).all()
+      const inquiries = await c.env.DB.prepare(`SELECT * FROM inquiries WHERE session_id=?`).bind(sessionOf(c)).all()
       const rows = inquiries.results || []
       const byCategory = rows.reduce((acc: Record<string, number>, inq: any) => { acc[inq.category] = (acc[inq.category] || 0) + 1; return acc }, {})
       const queueSize = rows.filter((i: any) => i.state === 'queued').length
@@ -243,11 +246,11 @@ app.get('/api/metrics', async (c) => {
 
 app.onError((err, c) => {
   console.error(err)
-  return c.status(500).json({ error: 'internal server error' })
+  return c.json({ error: 'internal server error' }, 500)
 })
 
 app.notFound((c) => {
-  return c.status(404).json({ error: 'not found' })
+  return c.json({ error: 'not found' }, 404)
 })
 
 export default app
